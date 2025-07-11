@@ -1,6 +1,6 @@
 import { driver } from "@/lib/graph";
 import findings from "@/data/findings_data.json";
-import { Asset, FindingSchema } from "@/app/models/finding";
+import { Asset } from "@/app/models/finding";
 import { NextResponse } from "next/server";
 
 function generateAssetId(asset: Asset, finding_id: string) {
