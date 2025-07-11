@@ -1,148 +1,125 @@
 import { driver } from "@/lib/graph";
 import findings from "@/data/findings_data.json";
-import { Asset } from "@/app/models/finding";
 import { NextResponse } from "next/server";
-
-function generateAssetId(asset: Asset, finding_id: string) {
-	switch (asset.type) {
-		case "api_endpoint":
-
-		case "web_route":
-			return `${asset.type}::${asset.url ?? "unknown-url"}`;
-
-		case "source_file":
-			return `${asset.type}::${asset.repo ?? "unknown-repo"}::${
-				asset.path ?? "unknown-path"
-			}`;
-
-		case "container_image":
-			const registryPart = asset.registry ? `${asset.registry}::` : "";
-			return `${asset.type}::${registryPart}${
-				asset.image ?? "unknown-image"
-			}`;
-
-		default:
-			// fallback for unknown asset types
-			return `unknown_asset::${finding_id}`;
-	}
-}
 
 export async function POST() {
 	const session = driver.session();
 
 	try {
+		const severityLevels = ["CRITICAL", "HIGH", "MEDIUM"];
+		const severityTx = session.beginTransaction();
+		try {
+			await severityTx.run(
+				`UNWIND $levels AS lvl
+				MERGE (:Severity {level: lvl})`,
+				{ levels: severityLevels }
+			);
+			await severityTx.commit();
+		} catch (error) {
+			console.error("Error creating Severity nodes:", error);
+			await severityTx.rollback();
+		}
+
 		for (const finding of findings) {
 			const tx = session.beginTransaction();
 
 			try {
-				const {
-					finding_id,
-					scanner,
-					scan_id,
-					timestamp,
-					vulnerability,
-					asset,
-					package: pkg,
-				} = finding;
+				const asset = finding.asset ?? null;
+				const vulnerability = finding.vulnerability ?? null;
+				const pkg = finding.package ?? null;
 
-				// Create Base Nodes
+				const { finding_id, scanner, scan_id, timestamp } = finding;
+
+				const vulnOwasp = vulnerability.owasp_id ?? null;
+				const vulnCwe = vulnerability.cwe_id;
+				const vulnCve = vulnerability.cve_id ?? null;
+				const vulnTitle = vulnerability.title ?? null;
+				const vulnSev = vulnerability.severity ?? null;
+				const vulnDesc = vulnerability.description ?? null;
+				const vulnVec = vulnerability.vector ?? null;
+
+				const assetType = asset.type;
+				const assetUrl = asset.url ?? null;
+				const assetSvc = asset.service ?? null;
+				const assetCluster = asset.cluster ?? null;
+				const assetPath = asset.path ?? null;
+				const assetRepo = asset.repo ?? null;
+				const assetImage = asset.image ?? null;
+				const assetReg = asset.registry ?? null;
+
+				const pkgEco = pkg?.ecosystem ?? null;
+				const pkgName = pkg?.name ?? null;
+				const pkgVer = pkg?.version ?? null;
+
 				await tx.run(
 					`
-                    MERGE (f:Finding {finding_id: $finding_id})
-                    SET
-                    f.scanner = $scanner,
-                    f.scan_id = $scan_id,
-                    f.timestamp = datetime($timestamp)`,
+					MERGE (f:Finding {finding_id: $finding_id})
+					SET
+					  f.scanner         = $scanner,
+					  f.scan_id         = $scan_id,
+					  f.timestamp       = datetime($timestamp),
+			
+					  // Vulnerability fields
+					  f.vuln_owasp_id   = $vulnOwasp,
+					  f.vuln_cwe_id     = $vulnCwe,
+					  f.vuln_cve_id     = $vulnCve,
+					  f.vuln_title      = $vulnTitle,
+					  f.vuln_severity   = $vulnSev,
+					  f.vuln_description= $vulnDesc,
+					  f.vuln_vector     = $vulnVec,
+			
+					  // Asset fields
+					  f.asset_type      = $assetType,
+					  f.asset_url       = $assetUrl,
+					  f.asset_service   = $assetSvc,
+					  f.asset_cluster   = $assetCluster,
+					  f.asset_path      = $assetPath,
+					  f.asset_repo      = $assetRepo,
+					  f.asset_image     = $assetImage,
+					  f.asset_registry  = $assetReg,
+			
+					  // Package fields
+					  f.pkg_ecosystem   = $pkgEco,
+					  f.pkg_name        = $pkgName,
+					  f.pkg_version     = $pkgVer
+					`,
 					{
 						finding_id,
 						scanner,
 						scan_id,
 						timestamp,
+						vulnOwasp,
+						vulnCwe,
+						vulnCve,
+						vulnTitle,
+						vulnSev,
+						vulnDesc,
+						vulnVec,
+						assetType,
+						assetUrl,
+						assetSvc,
+						assetCluster,
+						assetPath,
+						assetRepo,
+						assetImage,
+						assetReg,
+						pkgEco,
+						pkgName,
+						pkgVer,
 					}
 				);
 
 				await tx.run(
 					`
-                    MATCH (f:Finding {finding_id: $finding_id})
-                    MERGE (v:Vulnerability {cwe_id: $cwe_id, title: $vuln_title})
-                    ON CREATE SET
-                    v.owasp_id    = $owasp_id,
-                    v.severity    = $severity,
-                    v.description = $description,
-                    v.vector      = $vector
-                    v.cve_id      = $cve_id
-                    MERGE (f)-[:HAS_VULNERABILITY]->(v)
-                    `,
+					MATCH (f:Finding {finding_id: $finding_id})
+					MERGE (s:Severity {level: $vulnSev})
+					MERGE (f)-[:HAS_SEVERITY]->(s)
+					`,
 					{
 						finding_id,
-						cwe_id: vulnerability.cwe_id,
-						vuln_title: vulnerability.title,
-						owasp_id: vulnerability.owasp_id ?? null,
-						severity: vulnerability.severity,
-						description: vulnerability.description,
-						vector: vulnerability.vector,
-						cve_id: vulnerability.cve_id ?? "N/A",
+						vulnSev,
 					}
 				);
-
-				const assetId = generateAssetId(finding.asset, finding_id);
-
-				await tx.run(
-					`
-                    MATCH (f:Finding {finding_id: $finding_id})
-                    MERGE (a:Asset {id: $assetId})
-                    ON CREATE SET
-                    a.type = $type
-                    ${asset.url ? ", a.url = $url" : ""}
-                    ${asset.path ? ", a.path = $path" : ""}
-                    ${asset.image ? ", a.image = $image" : ""}
-                    ${asset.registry ? ", a.registry = $registry" : ""}
-                    ${asset.repo ? ", a.repo = $repo" : ""}
-                    ${asset.service ? ", a.service = $service" : ""}
-                    ${asset.cluster ? ", a.cluster = $cluster" : ""}
-                    MERGE (f)-[:AFFECTS]->(a)
-                    `,
-					{
-						finding_id,
-						assetId,
-						type: asset.type,
-						...(asset.url && { url: asset.url }),
-						...(asset.path && { path: asset.path }),
-						...(asset.image && { image: asset.image }),
-						...(asset.registry && { registry: asset.registry }),
-						...(asset.repo && { repo: asset.repo }),
-						...(asset.service && { service: asset.service }),
-						...(asset.cluster && { cluster: asset.cluster }),
-					}
-				);
-
-				if (pkg) {
-					await tx.run(
-						`
-                       MERGE (p:Package {name: $name, version: $version, ecosystem: $ecosystem})
-                       ON CREATE SET p.created = timestamp()
-                      `,
-						{
-							name: pkg.name,
-							version: pkg.version,
-							ecosystem: pkg.ecosystem,
-						}
-					);
-					// Link Vulnerability -> Package
-					await tx.run(
-						`
-                       MATCH (v:Vulnerability {cwe_id: $cwe_id, title: $vuln_title})
-                       MATCH (p:Package {name: $name, version: $version})
-                       MERGE (v)-[:RELATED_PACKAGE]->(p)
-                      `,
-						{
-							cwe_id: vulnerability.cwe_id,
-							vuln_title: vulnerability.title,
-							name: pkg.name,
-							version: pkg.version,
-						}
-					);
-				}
 
 				await tx.commit();
 			} catch (error) {

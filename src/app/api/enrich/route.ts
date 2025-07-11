@@ -7,170 +7,306 @@ const LITELLM_URL = `${process.env.LITELLM_BASE_URL}/chat/completions`;
 const LITELLM_KEY = process.env.LITELLM_API_KEY!;
 const MODEL = "gpt-4.1";
 
-async function askAgent(prompt: string): Promise<string> {
-	console.log("Asking agent");
-	console.log(prompt);
-	console.log(MODEL);
-	console.log(LITELLM_URL);
-	console.log(LITELLM_KEY);
-
-	const response = await axios.post(
-		LITELLM_URL,
-		{ model: MODEL, messages: [{ role: "user", content: prompt }] },
-		{ headers: { Authorization: `Bearer ${LITELLM_KEY}` } }
-	);
-	return response.data.choices[0].message.content;
-}
-export async function fetchVulnerabilities(): Promise<Vulnerability[]> {
+async function fetchGraphStats() {
 	const session = driver.session();
-	const result = await session.run(`
-      MATCH (v:Vulnerability)
-      RETURN
-        id(v)         AS id,
-        v.cwe_id      AS cwe_id,
-        v.owasp_id    AS owasp_id,
-        v.cve_id      AS cve_id,
-        v.title       AS title,
-        v.description AS description,
-        v.severity    AS severity,
-        v.vector      AS vector,
-        v.timestamp   AS timestamp
-    `);
+	const result = await session.run(
+		`
+    MATCH (n:Finding)
+    OPTIONAL MATCH (n)-[r]->(m)
+    RETURN id(n) AS sourceId,
+           labels(n) AS labels,
+           properties(n) AS props,
+           collect({ type: type(r), target: id(m) }) AS rels
+    `
+	);
 	await session.close();
 
-	return result.records.map((record) => {
-		const raw = {
-			id: record.get("id").toString(),
-			cwe_id: record.get("cwe_id"),
-			owasp_id: record.get("owasp_id") ?? null,
-			cve_id: record.get("cve_id") ?? null,
-			title: record.get("title"),
-			description: record.get("description"),
-			severity: record.get("severity"),
-			vector: record.get("vector"),
-			timestamp: record.get("timestamp") ?? null,
-		};
-
-		return VulnerabilitySchema.parse(raw);
-	});
+	// Transform to array of node objects
+	return result.records.map((rec) => ({
+		id: rec.get("sourceId").toString(),
+		labels: rec.get("labels"),
+		properties: rec.get("props"),
+		relationships: (rec.get("rels") as any[])
+			.filter((rel) => rel.type && rel.target !== null)
+			.map((rel) => ({ type: rel.type, target: rel.target.toString() })),
+	}));
 }
 
-interface InferredRel {
-	from: string;
-	to: string;
-	type:
-		| "SHARED_CWE"
-		| "SHARED_VECTOR"
-		| "SHARED_SCANNER"
-		| "COMMON_ROOT_CAUSE"
-		| "TEMPORAL_CLUSTER"
-		| "SHARED_PACKAGE"
-		| "SHARED_ASSET"
-		| "DEPENDS_ON";
-	explanation: string;
-}
+const globalTools = {
+	sharedCwe: async () => {
+		const s = driver.session();
+		await s.run(
+			`
+		MATCH (f1:Finding),(f2:Finding)
+		WHERE f1.vuln_cwe_id = f2.vuln_cwe_id
+		  AND f1.vuln_cwe_id IS NOT NULL
+		  AND id(f1) < id(f2)
+		MERGE (f1)-[:SHARED_CWE]->(f2)
+		`
+		);
+		await s.close();
+	},
 
-// 6. Build pairwise prompts and parse inferred relationships
-async function inferRelationships(
-	vulns: Vulnerability[]
-): Promise<InferredRel[]> {
-	const inferred: InferredRel[] = [];
+	temporalCooccurrence: async () => {
+		const s = driver.session();
+		await s.run(
+			`
+			MATCH (f1:Finding), (f2:Finding)
+			WHERE f1.timestamp IS NOT NULL AND f2.timestamp IS NOT NULL
+				AND id(f1) < id(f2)
+				AND abs(duration.between(f1.timestamp, f2.timestamp).seconds) < 3600
+			WITH f1, f2, abs(duration.between(f1.timestamp, f2.timestamp).seconds) AS seconds_apart
+			MERGE (f1)-[r:OCCURRED_TOGETHER]->(f2)
+			SET r.seconds_apart = seconds_apart
+			`
+		);
+		await s.close();
+	},
 
-	for (let i = 0; i < vulns.length; i++) {
-		for (let j = i + 1; j < vulns.length; j++) {
-			const A = vulns[i],
-				B = vulns[j];
+	sharedPackage: async () => {
+		const s = driver.session();
+		await s.run(
+			`
+		MATCH (f1:Finding),(f2:Finding)
+		WHERE f1.pkg_name = f2.pkg_name
+		  AND f1.pkg_name IS NOT NULL
+		  AND id(f1) < id(f2)
+		MERGE (f1)-[:SHARED_PACKAGE]->(f2)
+		`
+		);
+		await s.close();
+	},
 
-			const prompt = `
-  You are a security analyst. Given two vulnerabilities, determine which of the following relationships apply:
-  
-  1) SHARED_CWE: share the same CWE or exploit technique.
-  2) SHARED_VECTOR: share the same attack vector (e.g., network, code, config).
-  3) SHARED_SCANNER: discovered by the same scanner or scan ID.
-  4) SHARED_PACKAGE: affect the same software package or library.
-  5) SHARED_ASSET: target the same asset or resource URL/path.
-  6) COMMON_ROOT_CAUSE: arise from the same underlying misconfiguration or code pattern.
-  7) TEMPORAL_CLUSTER: discovered within 24 hours of each other.
-  8) DEPENDS_ON: one vulnerability likely leads to or enables the other (dependency lineage).
-  
-  Vuln A:
-	ID = ${A.id}
-	CWE = ${A.cwe_id}
-	OWASP = ${A.owasp_id ?? "N/A"}
-	Title = "${A.title}"
-	Desc = "${A.description}"
-	Severity = ${A.severity}
-	Vector = ${A.vector}
-  
-  Vuln B:
-	ID = ${B.id}
-	CWE = ${B.cwe_id}
-	OWASP = ${B.owasp_id ?? "N/A"}
-	Title = "${B.title}"
-	Desc = "${B.description}"
-	Severity = ${B.severity}
-	Vector = ${B.vector}
-  
-  Respond with a JSON array of objects, each with fields:
-	from, to, type, explanation
-  For example:
-  [
-	{"from":"${A.id}","to":"${
-				B.id
-			}","type":"SHARED_CWE","explanation":"Both share CWE-502"},
-	...
-  ]
-  `;
+	sharedAsset: async () => {
+		const s = driver.session();
+		await s.run(
+			`
+		MATCH (f1:Finding),(f2:Finding)
+		WHERE (f1.asset_service = f2.asset_service
+			   OR f1.asset_url = f2.asset_url)
+		  AND (f1.asset_service IS NOT NULL OR f1.asset_url IS NOT NULL)
+		  AND id(f1) < id(f2)
+		MERGE (f1)-[:SHARED_ASSET]->(f2)
+		`
+		);
+		await s.close();
+	},
+};
 
-			let reply = await askAgent(prompt);
-			try {
-				const relations: InferredRel[] = JSON.parse(reply);
-				inferred.push(...relations);
-			} catch (err) {
-				console.warn(
-					`Skipping bad AI reply for ${A.id}->${B.id}:`,
-					reply
-				);
-			}
+const pairwiseTools = {
+	// Semantic Root Cause: LLM-based on description similarity
+	semanticRootCause: async (a: any, b: any) => {
+		console.log("Semantic Root Cause");
+		console.log("a", a.properties.finding_id);
+		console.log("b", b.properties.finding_id);
+		const prompt = `Determine if findings '${a.properties.finding_id}' and '${b.properties.finding_id}' share a deeper root cause based on their vulnerability descriptions.
+						A='${a.properties.vuln_description}'
+						B='${b.properties.vuln_description}'
+
+						Respond in strict JSON: {"result":"yes"|"no","explanation":"..."}. If no, explanation is empty.`;
+
+		const resp = await axios.post(
+			LITELLM_URL,
+			{ model: MODEL, messages: [{ role: "user", content: prompt }] },
+			{ headers: { Authorization: `Bearer ${LITELLM_KEY}` } }
+		);
+
+		let parsed;
+		try {
+			parsed = JSON.parse(resp.data.choices[0].message.content.trim());
+		} catch {
+			console.warn(
+				"Malformed LLM output:",
+				resp.data.choices[0].message.content
+			);
+			return;
+		}
+
+		if (/^yes/i.test(parsed.result)) {
+			const s = driver.session();
+			await s.run(
+				`MATCH (f1:Finding {finding_id:$id1}), (f2:Finding {finding_id:$id2})
+				MERGE (f1)-[r:COMMON_ROOT_CAUSE]->(f2)
+				SET r.explanation = $explanation`,
+				{
+					id1: a.properties.finding_id,
+					id2: b.properties.finding_id,
+					explanation: parsed.explanation ?? "",
+				}
+			);
+			await s.close();
+		}
+	},
+
+	// Shared Exploit Technique: LLM-based similarity of exploit mechanism
+	sharedExploitTechnique: async (a: any, b: any) => {
+		console.log("Shared Exploit Technique");
+		console.log("a", a.properties.finding_id);
+		console.log("b", b.properties.finding_id);
+		const prompt = `You are a security expert. Analyze the following findings and decide if they share a similar exploit technique, even if their CWE or OWASP IDs differ.
+						A: CWE=${a.properties.vuln_cwe_id}, OWASP=${a.properties.vuln_owasp_id}, Title="${a.properties.vuln_title}", Desc="${a.properties.vuln_description}"
+						B: CWE=${b.properties.vuln_cwe_id}, OWASP=${b.properties.vuln_owasp_id}, Title="${b.properties.vuln_title}", Desc="${b.properties.vuln_description}"
+
+						Respond in strict JSON: {"result":"yes"|"no","explanation":"..."}. If no, explanation is empty.`;
+
+		const resp = await axios.post(
+			LITELLM_URL,
+			{ model: MODEL, messages: [{ role: "user", content: prompt }] },
+			{ headers: { Authorization: `Bearer ${LITELLM_KEY}` } }
+		);
+
+		let parsed;
+		try {
+			parsed = JSON.parse(resp.data.choices[0].message.content.trim());
+		} catch {
+			console.warn(
+				"Malformed LLM output:",
+				resp.data.choices[0].message.content
+			);
+			return;
+		}
+
+		if (/^yes/i.test(parsed.result)) {
+			const s = driver.session();
+			await s.run(
+				`MATCH (f1:Finding {finding_id:$id1}), (f2:Finding {finding_id:$id2})
+				MERGE (f1)-[r:SHARED_EXPLOIT_TECHNIQUE]->(f2)
+				SET r.explanation = $explanation`,
+				{
+					id1: a.properties.finding_id,
+					id2: b.properties.finding_id,
+					explanation: parsed.explanation ?? "",
+				}
+			);
+			await s.close();
+		}
+	},
+
+	// Related Asset/Endpoint: LLM-powered asset path/service similarity
+	relatedAsset: async (a: any, b: any) => {
+		console.log("Related Asset");
+		console.log("a", a.properties.finding_id);
+		console.log("b", b.properties.finding_id);
+		const prompt = `You are a security analyst. Determine if the following two assets are logically related or belong to the same functional area, even if the URLs or paths differ:
+						A: type=${a.properties.asset_type}, url=${a.properties.asset_url}, path=${a.properties.asset_path}, service=${a.properties.asset_service}, vector=${a.properties.vuln_vec}
+						B: type=${b.properties.asset_type}, url=${b.properties.asset_url}, path=${b.properties.asset_path}, service=${b.properties.asset_service}
+
+						Respond in strict JSON: {"result":"yes"|"no","explanation":"..."}. If no, explanation is empty.`;
+
+		const resp = await axios.post(
+			LITELLM_URL,
+			{ model: MODEL, messages: [{ role: "user", content: prompt }] },
+			{ headers: { Authorization: `Bearer ${LITELLM_KEY}` } }
+		);
+
+		let parsed;
+		try {
+			parsed = JSON.parse(resp.data.choices[0].message.content.trim());
+		} catch {
+			console.warn(
+				"Malformed LLM output:",
+				resp.data.choices[0].message.content
+			);
+			return;
+		}
+
+		if (/^yes/i.test(parsed.result)) {
+			const s = driver.session();
+			await s.run(
+				`MATCH (f1:Finding {finding_id:$id1}), (f2:Finding {finding_id:$id2})
+				MERGE (f1)-[r:RELATED_ASSET]->(f2)
+				SET r.explanation = $explanation`,
+				{
+					id1: a.properties.finding_id,
+					id2: b.properties.finding_id,
+					explanation: parsed.explanation ?? "",
+				}
+			);
+			await s.close();
+		}
+	},
+
+	// Shared CWE/OWASP, but also allow for semantic closeness (LLM)
+	semanticallyRelatedVuln: async (a: any, b: any) => {
+		console.log("Semantically Related Vuln");
+		console.log("a", a.properties.finding_id);
+		console.log("b", b.properties.finding_id);
+		const prompt = `Given the following two vulnerabilities, determine if their CWE or OWASP IDs, or their titles/descriptions, imply they are closely related or describe overlapping security issues (even if IDs differ).
+						A: CWE=${a.properties.vuln_cwe_id}, OWASP=${a.properties.vuln_owasp_id}, Title="${a.properties.vuln_title}", Desc="${a.properties.vuln_description}"
+						B: CWE=${b.properties.vuln_cwe_id}, OWASP=${b.properties.vuln_owasp_id}, Title="${b.properties.vuln_title}", Desc="${b.properties.vuln_description}"
+
+						Respond in strict JSON: {"result":"yes"|"no","explanation":"..."}. If no, explanation is empty.`;
+
+		const resp = await axios.post(
+			LITELLM_URL,
+			{ model: MODEL, messages: [{ role: "user", content: prompt }] },
+			{ headers: { Authorization: `Bearer ${LITELLM_KEY}` } }
+		);
+
+		let parsed;
+		try {
+			parsed = JSON.parse(resp.data.choices[0].message.content.trim());
+		} catch {
+			console.warn(
+				"Malformed LLM output:",
+				resp.data.choices[0].message.content
+			);
+			return;
+		}
+
+		if (/^yes/i.test(parsed.result)) {
+			const s = driver.session();
+			await s.run(
+				`MATCH (f1:Finding {finding_id:$id1}), (f2:Finding {finding_id:$id2})
+				MERGE (f1)-[r:SEMANTICALLY_RELATED_VULN]->(f2)
+				SET r.explanation = $explanation`,
+				{
+					id1: a.properties.finding_id,
+					id2: b.properties.finding_id,
+					explanation: parsed.explanation ?? "",
+				}
+			);
+			await s.close();
+		}
+	},
+};
+
+async function runAgenticEnrichment() {
+	// Run global tools once
+	for (const tool of Object.values(globalTools)) {
+		await tool();
+	}
+
+	// Fetch updated graph
+	const nodes = await fetchGraphStats();
+
+	// Iterate pairs for pairwise enrichment
+	for (let i = 0; i < nodes.length; i++) {
+		for (let j = i + 1; j < nodes.length; j++) {
+			await Promise.all([
+				pairwiseTools.semanticRootCause(nodes[i], nodes[j]),
+				pairwiseTools.sharedExploitTechnique(nodes[i], nodes[j]),
+				pairwiseTools.relatedAsset(nodes[i], nodes[j]),
+				pairwiseTools.semanticallyRelatedVuln(nodes[i], nodes[j]),
+			]);
 		}
 	}
-	return inferred;
-}
-async function writeRelationships(rels: InferredRel[]) {
-	const session = driver.session();
-	for (const { from, to, type, explanation } of rels) {
-		await session.run(
-			`
-      MATCH (a),(b)
-      WHERE id(a) = toInteger($from) AND id(b) = toInteger($to)
-      MERGE (a)-[r:${type}]->(b)
-      SET r.explanation = $explanation
-      `,
-			{ from, to, explanation }
-		);
-	}
-	await session.close();
-}
-
-export async function runEnrichment() {
-	console.log("Fetching vulnerabilities");
-	const vulns = await fetchVulnerabilities();
-	console.log(`Fetched ${vulns.length} vulnerabilities.`);
-
-	console.log("Inferring relationships via AI");
-	const inferred = await inferRelationships(vulns);
-	console.log(`Inferred ${inferred.length} relationships.`);
-
-	console.log("Writing relationships to Neo4j");
-	await writeRelationships(inferred);
 
 	await driver.close();
-	console.log("Enrichment complete");
+	console.log("Hybrid enrichment complete.");
+}
+
+// Execute if run directly
+if (require.main === module) {
+	runAgenticEnrichment().catch((err) => {
+		console.error(err);
+		process.exit(1);
+	});
 }
 
 export async function POST() {
 	try {
-		await runEnrichment();
+		await runAgenticEnrichment();
 		return NextResponse.json(
 			{ message: "Enrichment complete" },
 			{ status: 200 }
