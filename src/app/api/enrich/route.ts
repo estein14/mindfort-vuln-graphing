@@ -1,5 +1,4 @@
 import axios from "axios";
-import { VulnerabilitySchema, Vulnerability } from "@/app/models/finding";
 import { driver } from "@/lib/graph";
 import { NextResponse } from "next/server";
 
@@ -94,7 +93,6 @@ const globalTools = {
 };
 
 const pairwiseTools = {
-	// Semantic Root Cause: LLM-based on description similarity
 	semanticRootCause: async (a: any, b: any) => {
 		console.log("Semantic Root Cause");
 		console.log("a", a.properties.finding_id);
@@ -138,7 +136,6 @@ const pairwiseTools = {
 		}
 	},
 
-	// Shared Exploit Technique: LLM-based similarity of exploit mechanism
 	sharedExploitTechnique: async (a: any, b: any) => {
 		console.log("Shared Exploit Technique");
 		console.log("a", a.properties.finding_id);
@@ -182,7 +179,6 @@ const pairwiseTools = {
 		}
 	},
 
-	// Related Asset/Endpoint: LLM-powered asset path/service similarity
 	relatedAsset: async (a: any, b: any) => {
 		console.log("Related Asset");
 		console.log("a", a.properties.finding_id);
@@ -226,7 +222,6 @@ const pairwiseTools = {
 		}
 	},
 
-	// Shared CWE/OWASP, but also allow for semantic closeness (LLM)
 	semanticallyRelatedVuln: async (a: any, b: any) => {
 		console.log("Semantically Related Vuln");
 		console.log("a", a.properties.finding_id);
@@ -269,39 +264,91 @@ const pairwiseTools = {
 			await s.close();
 		}
 	},
+	overlappingRemediation: async (a: any, b: any) => {
+		console.log("Overlapping Remediation");
+		console.log("a", a.properties.finding_id);
+		console.log("b", b.properties.finding_id);
+		const prompt = `
+						You are a security engineer. Analyze whether a single remediation or fix could resolve BOTH of the following vulnerabilities. Consider all the details provided (title, description, CWE, OWASP, asset/service/path, package, etc). If yes, briefly explain what the remediation is.
+												
+						Finding A:
+						- Finding ID: ${a.properties.finding_id}
+						- CWE: ${a.properties.vuln_cwe_id}
+						- OWASP: ${a.properties.vuln_owasp_id}
+						- Title: ${a.properties.vuln_title}
+						- Description: ${a.properties.vuln_description}
+						- Asset: type=${a.properties.asset_type}, url=${a.properties.asset_url}, path=${a.properties.asset_path}, service=${a.properties.asset_service}
+						- Package: name=${a.properties.pkg_name}, version=${a.properties.pkg_version}, ecosystem=${a.properties.pkg_ecosystem}
+						
+						Finding B:
+						- Finding ID: ${b.properties.finding_id}
+						- CWE: ${b.properties.vuln_cwe_id}
+						- OWASP: ${b.properties.vuln_owasp_id}
+						- Title: ${b.properties.vuln_title}
+						- Description: ${b.properties.vuln_description}
+						- Asset: type=${b.properties.asset_type}, url=${b.properties.asset_url}, path=${b.properties.asset_path}, service=${b.properties.asset_service}
+						- Package: name=${b.properties.pkg_name}, version=${b.properties.pkg_version}, ecosystem=${b.properties.pkg_ecosystem}
+						
+						Respond in strict JSON: {"result":"yes"|"no","remediation":"..."}. If no, remediation is empty. Remediation is a single brief description.
+					`;
+
+		const resp = await axios.post(
+			LITELLM_URL,
+			{ model: MODEL, messages: [{ role: "user", content: prompt }] },
+			{ headers: { Authorization: `Bearer ${LITELLM_KEY}` } }
+		);
+
+		let parsed;
+		try {
+			parsed = JSON.parse(resp.data.choices[0].message.content.trim());
+		} catch {
+			console.warn(
+				"Malformed LLM output:",
+				resp.data.choices[0].message.content
+			);
+			return;
+		}
+
+		if (/^yes/i.test(parsed.result)) {
+			const s = driver.session();
+			await s.run(
+				`
+				MATCH (f1:Finding {finding_id:$id1}), (f2:Finding {finding_id:$id2})
+				MERGE (f1)-[r:OVERLAPPING_REMEDIATION]->(f2)
+				SET r.remediation = $remediation
+				`,
+				{
+					id1: a.properties.finding_id,
+					id2: b.properties.finding_id,
+					remediation: parsed.remediation ?? "",
+				}
+			);
+			await s.close();
+		}
+	},
 };
 
 async function runAgenticEnrichment() {
-	// Run global tools once
-	for (const tool of Object.values(globalTools)) {
-		await tool();
-	}
+	// for (const tool of Object.values(globalTools)) {
+	// 	await tool();
+	// }
 
-	// Fetch updated graph
 	const nodes = await fetchGraphStats();
 
-	// Iterate pairs for pairwise enrichment
 	for (let i = 0; i < nodes.length; i++) {
 		for (let j = i + 1; j < nodes.length; j++) {
 			await Promise.all([
-				pairwiseTools.semanticRootCause(nodes[i], nodes[j]),
-				pairwiseTools.sharedExploitTechnique(nodes[i], nodes[j]),
-				pairwiseTools.relatedAsset(nodes[i], nodes[j]),
-				pairwiseTools.semanticallyRelatedVuln(nodes[i], nodes[j]),
+				// pairwiseTools.semanticRootCause(nodes[i], nodes[j]),
+				// pairwiseTools.sharedExploitTechnique(nodes[i], nodes[j]),
+				// pairwiseTools.relatedAsset(nodes[i], nodes[j]),
+				// pairwiseTools.semanticallyRelatedVuln(nodes[i], nodes[j]),
+				pairwiseTools.overlappingRemediation(nodes[i], nodes[j]),
 			]);
 		}
 	}
 
 	await driver.close();
 	console.log("Hybrid enrichment complete.");
-}
-
-// Execute if run directly
-if (require.main === module) {
-	runAgenticEnrichment().catch((err) => {
-		console.error(err);
-		process.exit(1);
-	});
 }
 
 export async function POST() {
