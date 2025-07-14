@@ -13,6 +13,7 @@ export function Chat() {
 	const [input, setInput] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [loadingMessage, setLoadingMessage] = useState(0);
+	const [isSmallScreen, setIsSmallScreen] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 
 	const funnyMessages = [
@@ -42,6 +43,15 @@ export function Chat() {
 	useEffect(() => {
 		scrollToBottom();
 	}, [messages, isLoading]);
+
+	useEffect(() => {
+		const checkScreen = () => {
+			setIsSmallScreen(window.innerWidth < 760);
+		};
+		checkScreen();
+		window.addEventListener("resize", checkScreen);
+		return () => window.removeEventListener("resize", checkScreen);
+	}, []);
 
 	const sendMessage = async () => {
 		if (!input.trim()) return;
@@ -92,8 +102,11 @@ export function Chat() {
 	};
 
 	return (
-		<div className='flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4'>
-			<div className='w-9/10 h-9/10 bg-white shadow-2xl rounded-2xl overflow-hidden border-2 border-gradient-to-r from-blue-400 via-purple-500 to-pink-500 flex flex-col'>
+		<div className='flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-2 sm:p-4'>
+			<div
+				className={`${
+					isSmallScreen ? "w-full" : "w-9/10"
+				} h-9/10 bg-white shadow-2xl rounded-2xl overflow-hidden border-2 border-gradient-to-r from-blue-400 via-purple-500 to-pink-500 flex flex-col`}>
 				{/* Header */}
 				<div className='bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4 flex-shrink-0'>
 					<h1 className='text-white text-xl font-semibold'>
@@ -218,8 +231,12 @@ export function Chat() {
 				<div className='p-6 bg-gray-50 border-t border-gray-200 flex-shrink-0'>
 					<div className='flex gap-3 items-end'>
 						<textarea
-							className='flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white shadow-sm resize-none overflow-hidden'
-							placeholder='Ask about your security findings, vulnerabilities, or best practices...'
+							className='w-full sm:flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 bg-white shadow-sm resize-none overflow-hidden'
+							placeholder={
+								isSmallScreen
+									? "Ask away..."
+									: "Ask about your security findings, vulnerabilities, or best practices..."
+							}
 							style={{
 								color: "black",
 								minHeight: "48px",
