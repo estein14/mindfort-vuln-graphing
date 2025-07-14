@@ -46,96 +46,92 @@ async function createMemoryItem(
 export async function runAgenticChat(
 	history: ChatMessage[]
 ): Promise<{ answer: string; reasoning: string[] }> {
+	const timing: Record<string, number> = {};
+	const start = Date.now();
 	const reasoning: string[] = [];
 	const userMessage = history[history.length - 1].content;
 
-	// Find intent based on message
-	const { intent, reason } = await getIntent(userMessage);
+	// Parallelize intent and embedding
+	timing.intent_embed_start = Date.now();
+	const [intentResult, userEmbedding] = await Promise.all([
+		getIntent(userMessage),
+		embedText(userMessage),
+	]);
+	timing.intent_embed_end = Date.now();
+	const { intent, reason } = intentResult;
 	reasoning.push(`Intent classified as '${intent}': ${reason}`);
 
-	console.log("Intent", intent);
-	console.log("Reason", reason);
-
-	// Embed question, retrieve memories
-	const userEmbedding = await embedText(userMessage);
-	const similarMemories = retrieveSimilarMemories(userEmbedding, 5);
-	reasoning.push(`Retrieved ${similarMemories.length} similar memories.`);
-
-	const memoryContext = memoryStore.join("; ");
-	const recallSection = similarMemories.join("\n- ");
-
 	let assistantReply = "";
+	let cypher: string | undefined;
+	let cypherResult: any;
+
+	// Helper for timing LLM/graph calls
+	async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+		const t0 = Date.now();
+		try {
+			return await fn();
+		} finally {
+			const t1 = Date.now();
+		}
+	}
 
 	if (intent === TOOLS.chat_only) {
-		assistantReply = await chatOnly(
-			userMessage,
-			history,
-			memoryContext,
-			recallSection
-		);
+		// Retrieve similar memories (can run in parallel with next step if needed)
+		timing.memories_start = Date.now();
+		const similarMemories = retrieveSimilarMemories(userEmbedding, 5);
+		timing.memories_end = Date.now();
+		reasoning.push(`Retrieved ${similarMemories.length} similar memories.`);
 
-		console.log("Assistant Reply", assistantReply);
+		const memoryContext = memoryStore.join("; ");
+		const recallSection = similarMemories.join("\n- ");
+		assistantReply = await timed("chatOnly", () =>
+			chatOnly(userMessage, history, memoryContext, recallSection)
+		);
 	} else if (intent === TOOLS.general_graph_search) {
-		const cypher = await getGeneralGraphSearchCypher(userMessage);
-		reasoning.push(`Generated Cypher query: ${cypher}`);
-
-		console.log("Cypher", cypher);
-		const cypherResult = await runCypher(cypher);
-
-		assistantReply = await analyzeGraphContext(
-			userMessage,
-			<Finding[]>cypherResult,
-			memoryContext,
-			recallSection,
-			history
+		cypher = await timed("getGeneralGraphSearchCypher", () =>
+			getGeneralGraphSearchCypher(userMessage)
 		);
+		reasoning.push(`Generated Cypher query: ${cypher}`);
+		cypherResult = await timed("runCypher", () => runCypher(cypher!));
+		assistantReply = await timed("analyzeGraphContext", () =>
+			analyzeGraphContext(userMessage, cypherResult as Finding[], history)
+		);
+		reasoning.push(`Analyzed the data.`);
 	} else if (intent === TOOLS.specific_graph_search) {
-		const cypher = await getSpecificGraphSearchCypher(userMessage);
-		reasoning.push(`Generated Cypher query: ${cypher}`);
-
-		console.log("Cypher", cypher);
-		const cypherResult = await runCypher(cypher);
-
-		assistantReply = await analyzeGraphContext(
-			userMessage,
-			<Finding[]>cypherResult,
-			memoryContext,
-			recallSection,
-			history
+		cypher = await timed("getSpecificGraphSearchCypher", () =>
+			getSpecificGraphSearchCypher(userMessage)
 		);
+		reasoning.push(`Generated Cypher query: ${cypher}`);
+		cypherResult = await timed("runCypher", () => runCypher(cypher!));
+		assistantReply = await timed("analyzeGraphContext", () =>
+			analyzeGraphContext(userMessage, cypherResult as Finding[], history)
+		);
+		reasoning.push(`Analyzed the data.`);
 	} else if (intent === TOOLS.semantic_graph_search) {
-		const cypher = await getSemanticSearchCypher(userMessage);
+		cypher = await timed("getSemanticSearchCypher", () =>
+			getSemanticSearchCypher(userMessage)
+		);
 		reasoning.push(`Generated Cypher query: ${cypher}`);
-
-		console.log("Cypher", cypher);
-		const cypherResult = await runCypher(cypher);
-
-		assistantReply = await analyzeGraphContext(
-			userMessage,
-			<Finding[]>cypherResult,
-			memoryContext,
-			recallSection,
-			history
+		cypherResult = await timed("runCypher", () => runCypher(cypher!));
+		assistantReply = await timed("analyzeGraphContext", () =>
+			analyzeGraphContext(userMessage, cypherResult as Finding[], history)
 		);
-	} else if (intent === TOOLS.semantic_cosine_similarity) {
-		const semanticResponse = await semanticSearch(userMessage);
-		assistantReply = await analyzeGraphContext(
-			userMessage,
-			semanticResponse,
-			memoryContext,
-			recallSection,
-			history
-		);
-	} else {
+		reasoning.push(`Analyzed the data.`);
+	}
+	//  else if (intent === TOOLS.semantic_cosine_similarity) {
+	// 	const semanticResponse = await timed("semanticSearch", () =>
+	// 		semanticSearch(userMessage)
+	// 	);
+	// 	assistantReply = await timed("analyzeGraphContext", () =>
+	// 		analyzeGraphContext(userMessage, semanticResponse, history)
+	// 	);
+	// }
+	else {
 		reasoning.push(`No tool found for intent: ${intent}`);
 	}
 
-	console.log("Assistant Reply", assistantReply);
-	console.log("Reasoning", reasoning);
-
 	// Defer memory operations to run after response is returned
 	setTimeout(async () => {
-		console.log("Memory Store NOW BEING COMPRESSED");
 		// Compress memory if necessary
 		if (memoryStore.length > 50) {
 			const summary = await compressMemories(memoryStore);
@@ -155,5 +151,6 @@ export async function runAgenticChat(
 		}
 	}, 0);
 
+	reasoning.push(`Total agent thought time: ${Date.now() - start} ms`);
 	return { answer: assistantReply, reasoning };
 }

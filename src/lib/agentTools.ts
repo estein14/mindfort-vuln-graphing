@@ -15,7 +15,7 @@ export const TOOLS = {
 	general_graph_search: "general_graph_search",
 	specific_graph_search: "specific_graph_search",
 	semantic_graph_search: "semantic_graph_search",
-	semantic_cosine_similarity: "semantic_cosine_similarity",
+	// semantic_cosine_similarity: "semantic_cosine_similarity",
 };
 
 export const llmContext = `The graph contains only **Finding** nodes. Each Finding node includes these fields:
@@ -50,7 +50,6 @@ TOOLS:
 2. 'general_graph_search' – If the user asks general questions about the graph or relationships
 2. 'specific_graph_search' – If the user refers to **known fields** like CVE ID, CWE ID, severity, package name, or asset URL
 3. 'semantic_graph_search' – If the user asks about general vulnerability types (e.g., "AQL injection", "race condition") that are not matched by structured fields
-4. 'semantic_cosine_similarity' - Use gds.similarity.cosine(f.embedding, $queryEmbedding) AS similarity to find the most similar Findings.
 
 ### Examples:
 
@@ -74,7 +73,10 @@ Respond **strictly in JSON**: { "action": "tool_name", "reason": "brief explanat
 
 	const res = await axios.post(
 		LITELLM_URL,
-		{ model: MODEL, messages: [{ role: "user", content: intentPrompt }] },
+		{
+			model: "o4-mini",
+			messages: [{ role: "user", content: intentPrompt }],
+		},
 		{ headers: { Authorization: `Bearer ${LITELLM_KEY}` } }
 	);
 
@@ -123,7 +125,7 @@ Please respond with HTML content (not a full HTML document). Use appropriate HTM
 
 	const res = await axios.post(
 		LITELLM_URL,
-		{ model: MODEL, messages: messagesPayload },
+		{ model: "gemini-2.5-flash", messages: messagesPayload },
 		{ headers: { Authorization: `Bearer ${LITELLM_KEY}` } }
 	);
 
@@ -138,7 +140,7 @@ You are an expert Cypher assistant for a Neo4j aura database of vulnerability fi
 
 ${llmContext}
 
-Based on the users message, please generate a simple Cypher query that will retrieve the Findings (without f.embedding) and/or Relationships and all the data that can then be analyzed.
+Based on the users message, please generate a simple Cypher query that will retrieve the Findings and/or Relationships and all the data that can then be analyzed.
 
 User message: "${message}"
 
@@ -181,7 +183,7 @@ You are an expert Cypher assistant for a Neo4j aura database of vulnerability fi
 
 ${llmContext}
 
-Based on the users message, please generate a simple Cypher query that will retrieve whole Findings (without f.embedding) and/or Relationships that can then be analyzed.
+Based on the users message, please generate a simple Cypher query that will retrieve whole Findings and/or Relationships that can then be analyzed.
 
 User message: "${message}"
 
@@ -223,14 +225,12 @@ export async function getSemanticSearchCypher(message: string) {
 You are an expert Cypher assistant for a Neo4j database of vulnerability findings.
 
 ${llmContext}
-- embedding (vector, not queryable directly in Cypher)
 
 Your task is:
 1. Convert the user message into a **simple, executable Cypher query**.
 2. Only use **MATCH**, **WHERE**, **RETURN** clauses. Avoid procedures, APOC, or custom tools.
 3. Do **not invent node types, relationships, or indexes**.
 4. Always use the label \`:Finding\`.
-5. Do not return f.embedding in the Cypher query.
 5. Only return a **JSON object** in this format:  
 { "cypher": "MATCH ... RETURN ..." }
 
@@ -270,18 +270,15 @@ User message: "${message}"
 export async function analyzeGraphContext(
 	message: string,
 	data: Finding[],
-	memoryContext: string,
-	recallSection: string,
 	history: ChatMessage[]
 ) {
 	const systemPrompt: ChatMessage = {
 		role: "system",
 		content: `
+		AS QUICKLY AS AND CONCISELY AS POSSIBLE,
         Your job is to analyze the graph data and provide a response to the user's question. Feel free to use the memory context and past interactions to help you answer the question.
         User Question: ${message}
-        Memory Context: ${memoryContext}
-        Past Interactions:
-        - ${recallSection}
+ 
         Graph Data Retrieved:
         ${JSON.stringify(data, null, 2)}
         Please respond with HTML content (not a full HTML document). Use appropriate HTML tags like <h1>, <br>, <h2>, <p>, <ul>, <li>, <strong>, <em>, etc. to format your response. Do not include <html>, <head>, or <body> tags.
