@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 interface Message {
 	role: "user" | "agent";
@@ -13,6 +13,7 @@ export function Chat() {
 	const [input, setInput] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [loadingMessage, setLoadingMessage] = useState(0);
+	const messagesEndRef = useRef<HTMLDivElement>(null);
 
 	const funnyMessages = [
 		"Thinking...",
@@ -32,6 +33,15 @@ export function Chat() {
 		"Generating random excuses for delays...",
 		"Waiting for the security gods to respond...",
 	];
+
+	const scrollToBottom = () => {
+		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+	};
+
+	// Auto-scroll when messages change or loading state changes
+	useEffect(() => {
+		scrollToBottom();
+	}, [messages, isLoading]);
 
 	const sendMessage = async () => {
 		if (!input.trim()) return;
@@ -199,6 +209,8 @@ export function Chat() {
 							</div>
 						</div>
 					)}
+					{/* Invisible div for scrolling to bottom */}
+					<div ref={messagesEndRef} />
 				</div>
 
 				{/* Input Bar */}

@@ -61,13 +61,6 @@ export async function runAgenticChat(
 	const similarMemories = retrieveSimilarMemories(userEmbedding, 5);
 	reasoning.push(`Retrieved ${similarMemories.length} similar memories.`);
 
-	// Compress memory if necessary
-	if (memoryStore.length > 50) {
-		const summary = await compressMemories(memoryStore);
-		memoryStore = [summary];
-		reasoning.push("Compressed long-term memory.");
-	}
-
 	const memoryContext = memoryStore.join("; ");
 	const recallSection = similarMemories.join("\n- ");
 
@@ -139,19 +132,30 @@ export async function runAgenticChat(
 		reasoning.push(`No tool found for intent: ${intent}`);
 	}
 
-	const lastUser = history.findLast((m) => m.role === "user");
-	if (lastUser) {
-		const summary = await createMemoryItem(
-			lastUser.content,
-			assistantReply
-		);
-		memoryStore.push(summary);
-		const embed = await embedText(summary);
-		addMemory(embed, summary);
-	}
-
 	console.log("Assistant Reply", assistantReply);
 	console.log("Reasoning", reasoning);
+
+	// Defer memory operations to run after response is returned
+	setTimeout(async () => {
+		console.log("Memory Store NOW BEING COMPRESSED");
+		// Compress memory if necessary
+		if (memoryStore.length > 50) {
+			const summary = await compressMemories(memoryStore);
+			memoryStore = [summary];
+			console.log("Compressed long-term memory.");
+		}
+
+		const lastUser = history.findLast((m) => m.role === "user");
+		if (lastUser) {
+			const summary = await createMemoryItem(
+				lastUser.content,
+				assistantReply
+			);
+			memoryStore.push(summary);
+			const embed = await embedText(summary);
+			addMemory(embed, summary);
+		}
+	}, 0);
 
 	return { answer: assistantReply, reasoning };
 }
