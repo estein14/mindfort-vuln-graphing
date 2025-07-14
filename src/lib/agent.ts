@@ -63,7 +63,7 @@ export async function runAgenticChat(
 
 	let assistantReply = "";
 	let cypher: string | undefined;
-	let cypherResult: any;
+	let cypherResult: unknown;
 
 	// Helper for timing LLM/graph calls
 	async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
