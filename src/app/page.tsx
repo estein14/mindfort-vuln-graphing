@@ -10,9 +10,9 @@ export default function Home() {
 					</h1>
 					<p className='text-gray-600 text-center text-lg max-w-md'>
 						Visualize, analyze, and understand your security
-						vulnerabilities. MindFort helps you explore findings,
-						see relationships, and get actionable insights to
-						improve your security posture.
+						vulnerabilities. This agent chatbot helps you explore
+						findings, see relationships, and get actionable insights
+						to improve your security posture.
 					</p>
 				</div>
 				<Link
