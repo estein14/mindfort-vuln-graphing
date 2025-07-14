@@ -1,6 +1,6 @@
 import { embedText } from "@/lib/embed";
 import { driver } from "@/lib/graph";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 export async function POST() {
 	const session = driver.session();

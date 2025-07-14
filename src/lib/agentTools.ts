@@ -1,4 +1,5 @@
 import axios from "axios";
+import { Finding } from "@/app/models/finding";
 
 const LITELLM_URL = `${process.env.LITELLM_BASE_URL}/chat/completions`;
 const LITELLM_KEY = process.env.LITELLM_API_KEY!;
@@ -23,7 +24,6 @@ export const llmContext = `The graph contains only **Finding** nodes. Each Findi
 - asset_type, asset_url, asset_service, asset_cluster, asset_path, asset_repo, asset_image, asset_registry
 - pkg_ecosystem, pkg_name, pkg_version
 - scanner, scan_id, timestamp
-- embedding (vector, not queryable directly in Cypher)
 
 Valid relationships between findings:
 - COMMON_ROOT_CAUSE
@@ -89,7 +89,7 @@ Respond **strictly in JSON**: { "action": "tool_name", "reason": "brief explanat
 			intent = parsed.action;
 			reason = parsed.reason;
 		}
-	} catch (e) {
+	} catch {
 		console.warn(
 			"Intent classification failed, defaulting to chat_only:",
 			intentResp
@@ -138,7 +138,7 @@ You are an expert Cypher assistant for a Neo4j aura database of vulnerability fi
 
 ${llmContext}
 
-Based on the users message, please generate a simple Cypher query that will retrieve the Findings and all the data that can then be analyzed.
+Based on the users message, please generate a simple Cypher query that will retrieve the Findings (without f.embedding) and/or Relationships and all the data that can then be analyzed.
 
 User message: "${message}"
 
@@ -168,7 +168,7 @@ Respond in strict JSON without \`\`\`: { "cypher": "MATCH ... RETURN ..." }
 		} else {
 			console.warn("No 'cypher' key found in response:", cypherResp);
 		}
-	} catch (e) {
+	} catch {
 		console.warn("Cypher JSON parse failed:", cypherResp);
 	}
 
@@ -181,7 +181,7 @@ You are an expert Cypher assistant for a Neo4j aura database of vulnerability fi
 
 ${llmContext}
 
-Based on the users message, please generate a simple Cypher query that will retrieve whole Findings that can then be analyzed.
+Based on the users message, please generate a simple Cypher query that will retrieve whole Findings (without f.embedding) and/or Relationships that can then be analyzed.
 
 User message: "${message}"
 
@@ -211,7 +211,7 @@ Respond in strict JSON without \`\`\`: { "cypher": "MATCH ... RETURN ..." }
 		} else {
 			console.warn("No 'cypher' key found in response:", cypherResp);
 		}
-	} catch (e) {
+	} catch {
 		console.warn("Cypher JSON parse failed:", cypherResp);
 	}
 
@@ -223,12 +223,14 @@ export async function getSemanticSearchCypher(message: string) {
 You are an expert Cypher assistant for a Neo4j database of vulnerability findings.
 
 ${llmContext}
+- embedding (vector, not queryable directly in Cypher)
 
 Your task is:
 1. Convert the user message into a **simple, executable Cypher query**.
 2. Only use **MATCH**, **WHERE**, **RETURN** clauses. Avoid procedures, APOC, or custom tools.
 3. Do **not invent node types, relationships, or indexes**.
 4. Always use the label \`:Finding\`.
+5. Do not return f.embedding in the Cypher query.
 5. Only return a **JSON object** in this format:  
 { "cypher": "MATCH ... RETURN ..." }
 
@@ -258,7 +260,7 @@ User message: "${message}"
 		} else {
 			console.warn("No 'cypher' key found in response:", cypherResp);
 		}
-	} catch (e) {
+	} catch {
 		console.warn("Cypher JSON parse failed:", cypherResp);
 	}
 
@@ -267,7 +269,7 @@ User message: "${message}"
 
 export async function analyzeGraphContext(
 	message: string,
-	data: any[],
+	data: Finding[],
 	memoryContext: string,
 	recallSection: string,
 	history: ChatMessage[]

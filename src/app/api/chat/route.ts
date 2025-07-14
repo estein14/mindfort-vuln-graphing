@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 		];
 		const { answer, reasoning } = await runAgenticChat(chatMessages);
 		return NextResponse.json({ answer, reasoning });
-	} catch (err: any) {
+	} catch (err: unknown) {
 		console.error("Chat error", err);
 		return NextResponse.json({ error: "Agent failed" }, { status: 500 });
 	}

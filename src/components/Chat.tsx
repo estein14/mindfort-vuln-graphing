@@ -68,7 +68,7 @@ export function Chat() {
 			const agentMsg = { role: "agent" as const, content: data.answer };
 			setMessages((prev) => [...prev, agentMsg]);
 			setReasonings((prev) => [...prev, [...data.reasoning]]);
-		} catch (error) {
+		} catch {
 			setMessages((prev) => [
 				...prev,
 				{ role: "agent", content: "Error: Failed to get response" },

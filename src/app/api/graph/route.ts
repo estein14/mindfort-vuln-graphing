@@ -1,6 +1,6 @@
-import type { NextApiRequest, NextApiResponse } from "next";
 import { driver } from "@/lib/graph";
 import { NextResponse } from "next/server";
+import { GraphData, GraphNode, GraphRelationship } from "@/app/models/finding";
 
 export async function GET() {
 	const session = driver.session();
@@ -8,8 +8,8 @@ export async function GET() {
 	try {
 		const result = await session.run(`MATCH (n)-[r]->(m) RETURN n, r, m`);
 
-		const nodesMap: Record<string, any> = {};
-		const rels: any[] = [];
+		const nodesMap: Record<string, GraphNode> = {};
+		const rels: GraphRelationship[] = [];
 
 		result.records.forEach((record) => {
 			const n = record.get("n");

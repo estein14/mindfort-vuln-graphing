@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import { GraphNode, GraphRelationship } from "@/app/models/finding";
 
 const BasicNvlWrapper = dynamic(
 	() => import("@neo4j-nvl/react").then((mod) => mod.BasicNvlWrapper),
@@ -8,8 +9,8 @@ const BasicNvlWrapper = dynamic(
 );
 
 export default function GraphPage() {
-	const [nodes, setNodes] = useState<any[]>([]);
-	const [rels, setRels] = useState<any[]>([]);
+	const [nodes, setNodes] = useState<GraphNode[]>([]);
+	const [rels, setRels] = useState<GraphRelationship[]>([]);
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
@@ -43,7 +44,7 @@ export default function GraphPage() {
 
 	return (
 		<div className='h-screen w-full'>
-			{nodes.length == 15 && (
+			{/* {nodes.length == 15 && (
 				<BasicNvlWrapper
 					key={`${nodes.map((n) => n.id).join("-")}-${rels.length}`}
 					nodes={nodes}
@@ -60,7 +61,7 @@ export default function GraphPage() {
 					//   onNodeClick: (node) => console.log("Node clicked", node),
 					// }}
 				/>
-			)}
+			)} */}
 		</div>
 	);
 }

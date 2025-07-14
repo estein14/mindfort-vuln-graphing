@@ -12,6 +12,7 @@ import {
 	getSpecificGraphSearchCypher,
 	TOOLS,
 } from "./agentTools";
+import { Finding } from "@/app/models/finding";
 
 const LITELLM_URL = `${process.env.LITELLM_BASE_URL}/chat/completions`;
 const LITELLM_KEY = process.env.LITELLM_API_KEY!;
@@ -90,7 +91,7 @@ export async function runAgenticChat(
 
 		assistantReply = await analyzeGraphContext(
 			userMessage,
-			cypherResult,
+			<Finding[]>cypherResult,
 			memoryContext,
 			recallSection,
 			history
@@ -106,7 +107,7 @@ export async function runAgenticChat(
 
 		assistantReply = await analyzeGraphContext(
 			userMessage,
-			cypherResult,
+			<Finding[]>cypherResult,
 			memoryContext,
 			recallSection,
 			history
@@ -120,7 +121,7 @@ export async function runAgenticChat(
 
 		assistantReply = await analyzeGraphContext(
 			userMessage,
-			cypherResult,
+			<Finding[]>cypherResult,
 			memoryContext,
 			recallSection,
 			history

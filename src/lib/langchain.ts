@@ -9,7 +9,10 @@ export type ChatMessage = {
 
 let qaChain: GraphCypherQAChain | null = null;
 
-async function initQAChain(): Promise<GraphCypherQAChain> {
+// Attempt to use langChain which is a bit more robust than the agent.ts file
+// but it's not working as expected.
+
+export async function initQAChain(): Promise<GraphCypherQAChain> {
 	if (qaChain) return qaChain;
 	console.log("1");
 
@@ -37,20 +40,3 @@ async function initQAChain(): Promise<GraphCypherQAChain> {
 	console.log("4");
 	return qaChain;
 }
-
-// export async function runAgenticChat(messages: ChatMessage[]) {
-// 	console.log("RIN CHAT");
-// 	const lastUserMessage = messages
-// 		.reverse()
-// 		.find((m) => m.role === "user")?.content;
-// 	if (!lastUserMessage) throw new Error("No user message found");
-
-// 	const chain = await initQAChain();
-// 	const result = await chain.invoke({ query: lastUserMessage });
-
-// 	console.log("result", result);
-// 	return {
-// 		answer: result.text ?? "No answer generated.",
-// 		reasoning: result.intermediate_steps ?? [],
-// 	};
-// }

@@ -1,6 +1,12 @@
 import axios from "axios";
 import { driver } from "@/lib/graph";
 import { NextResponse } from "next/server";
+import {
+	EnrichmentNode,
+	EnrichmentResponse,
+	EnrichmentNodeWithProperties,
+	FindingProperties,
+} from "@/app/models/finding";
 
 const LITELLM_URL = `${process.env.LITELLM_BASE_URL}/chat/completions`;
 const LITELLM_KEY = process.env.LITELLM_API_KEY!;
@@ -25,7 +31,7 @@ async function fetchGraphStats() {
 		id: rec.get("sourceId").toString(),
 		labels: rec.get("labels"),
 		properties: rec.get("props"),
-		relationships: (rec.get("rels") as any[])
+		relationships: (rec.get("rels") as { type: string; target: string }[])
 			.filter((rel) => rel.type && rel.target !== null)
 			.map((rel) => ({ type: rel.type, target: rel.target.toString() })),
 	}));
@@ -93,11 +99,15 @@ const globalTools = {
 };
 
 const pairwiseTools = {
-	semanticRootCause: async (a: any, b: any) => {
+	semanticRootCause: async (
+		a: EnrichmentNodeWithProperties,
+		b: EnrichmentNodeWithProperties
+	) => {
 		console.log("Semantic Root Cause");
 		console.log("a", a.properties.finding_id);
 		console.log("b", b.properties.finding_id);
 		const prompt = `Determine if findings '${a.properties.finding_id}' and '${b.properties.finding_id}' share a deeper root cause based on their vulnerability descriptions.
+						Disregard any values that are null or empty.
 						A='${a.properties.vuln_description}'
 						B='${b.properties.vuln_description}'
 
@@ -136,11 +146,15 @@ const pairwiseTools = {
 		}
 	},
 
-	sharedExploitTechnique: async (a: any, b: any) => {
+	sharedExploitTechnique: async (
+		a: EnrichmentNodeWithProperties,
+		b: EnrichmentNodeWithProperties
+	) => {
 		console.log("Shared Exploit Technique");
 		console.log("a", a.properties.finding_id);
 		console.log("b", b.properties.finding_id);
 		const prompt = `You are a security expert. Analyze the following findings and decide if they share a similar exploit technique, even if their CWE or OWASP IDs differ.
+						Disregard any values that are null or empty.
 						A: CWE=${a.properties.vuln_cwe_id}, OWASP=${a.properties.vuln_owasp_id}, Title="${a.properties.vuln_title}", Desc="${a.properties.vuln_description}"
 						B: CWE=${b.properties.vuln_cwe_id}, OWASP=${b.properties.vuln_owasp_id}, Title="${b.properties.vuln_title}", Desc="${b.properties.vuln_description}"
 
@@ -179,14 +193,17 @@ const pairwiseTools = {
 		}
 	},
 
-	relatedAsset: async (a: any, b: any) => {
+	relatedAsset: async (
+		a: EnrichmentNodeWithProperties,
+		b: EnrichmentNodeWithProperties
+	) => {
 		console.log("Related Asset");
 		console.log("a", a.properties.finding_id);
 		console.log("b", b.properties.finding_id);
 		const prompt = `You are a security analyst. Determine if the following two assets are logically related or belong to the same functional area, even if the URLs or paths differ:
-						A: type=${a.properties.asset_type}, url=${a.properties.asset_url}, path=${a.properties.asset_path}, service=${a.properties.asset_service}, vector=${a.properties.vuln_vec}
+						Disregard any values that are null or empty.
+						A: type=${a.properties.asset_type}, url=${a.properties.asset_url}, path=${a.properties.asset_path}, service=${a.properties.asset_service}, vector=${a.properties.vuln_vector}
 						B: type=${b.properties.asset_type}, url=${b.properties.asset_url}, path=${b.properties.asset_path}, service=${b.properties.asset_service}
-
 						Respond in strict JSON: {"result":"yes"|"no","explanation":"..."}. If no, explanation is empty.`;
 
 		const resp = await axios.post(
@@ -222,11 +239,15 @@ const pairwiseTools = {
 		}
 	},
 
-	semanticallyRelatedVuln: async (a: any, b: any) => {
+	semanticallyRelatedVuln: async (
+		a: EnrichmentNodeWithProperties,
+		b: EnrichmentNodeWithProperties
+	) => {
 		console.log("Semantically Related Vuln");
 		console.log("a", a.properties.finding_id);
 		console.log("b", b.properties.finding_id);
 		const prompt = `Given the following two vulnerabilities, determine if their CWE or OWASP IDs, or their titles/descriptions, imply they are closely related or describe overlapping security issues (even if IDs differ).
+						Disregard any values that are null or empty.
 						A: CWE=${a.properties.vuln_cwe_id}, OWASP=${a.properties.vuln_owasp_id}, Title="${a.properties.vuln_title}", Desc="${a.properties.vuln_description}"
 						B: CWE=${b.properties.vuln_cwe_id}, OWASP=${b.properties.vuln_owasp_id}, Title="${b.properties.vuln_title}", Desc="${b.properties.vuln_description}"
 
@@ -264,13 +285,16 @@ const pairwiseTools = {
 			await s.close();
 		}
 	},
-	overlappingRemediation: async (a: any, b: any) => {
+	overlappingRemediation: async (
+		a: EnrichmentNodeWithProperties,
+		b: EnrichmentNodeWithProperties
+	) => {
 		console.log("Overlapping Remediation");
 		console.log("a", a.properties.finding_id);
 		console.log("b", b.properties.finding_id);
 		const prompt = `
 						You are a security engineer. Analyze whether a single remediation or fix could resolve BOTH of the following vulnerabilities. Consider all the details provided (title, description, CWE, OWASP, asset/service/path, package, etc). If yes, briefly explain what the remediation is.
-												
+						Disregard any values that are null or empty.
 						Finding A:
 						- Finding ID: ${a.properties.finding_id}
 						- CWE: ${a.properties.vuln_cwe_id}
@@ -329,19 +353,19 @@ const pairwiseTools = {
 };
 
 async function runAgenticEnrichment() {
-	// for (const tool of Object.values(globalTools)) {
-	// 	await tool();
-	// }
+	for (const tool of Object.values(globalTools)) {
+		await tool();
+	}
 
 	const nodes = await fetchGraphStats();
 
 	for (let i = 0; i < nodes.length; i++) {
 		for (let j = i + 1; j < nodes.length; j++) {
 			await Promise.all([
-				// pairwiseTools.semanticRootCause(nodes[i], nodes[j]),
-				// pairwiseTools.sharedExploitTechnique(nodes[i], nodes[j]),
-				// pairwiseTools.relatedAsset(nodes[i], nodes[j]),
-				// pairwiseTools.semanticallyRelatedVuln(nodes[i], nodes[j]),
+				pairwiseTools.semanticRootCause(nodes[i], nodes[j]),
+				pairwiseTools.sharedExploitTechnique(nodes[i], nodes[j]),
+				pairwiseTools.relatedAsset(nodes[i], nodes[j]),
+				pairwiseTools.semanticallyRelatedVuln(nodes[i], nodes[j]),
 				pairwiseTools.overlappingRemediation(nodes[i], nodes[j]),
 			]);
 		}
@@ -358,7 +382,7 @@ export async function POST() {
 			{ message: "Enrichment complete" },
 			{ status: 200 }
 		);
-	} catch (error) {
+	} catch (error: unknown) {
 		console.error("Enrichment error:", error);
 		return NextResponse.json(
 			{ error: "Failed to enrich" },
