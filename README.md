@@ -1,37 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MindFort Vulnerability Graphing
 
-## Getting Started
+A modern, interactive web application for visualizing, querying, and enriching cybersecurity vulnerability data using a graph-based approach.
 
-First, run the development server:
+## 🚀 What is this?
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+MindFort Vulnerability Graphing is a Next.js/React app that lets you:
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+-   **Chat with a security assistant** to ask questions about your vulnerability data
+-   **Visualize findings and relationships** in a graph (Neo4j-powered)
+-   **Enrich and analyze** findings with LLM-powered tools
+-   **Store and recall context** for smarter, more contextual answers
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🧑‍💻 How to Use
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+-   Start the app locally (see below)
+-   Use the chat to ask about vulnerabilities, best practices, or specific findings
+-   Visualize your data in the graph view
+-   Enrich your data with advanced tools (Cypher queries, LLM enrichment, etc.)
 
-## Learn More
+## 🛠️ Development Setup
 
-To learn more about Next.js, take a look at the following resources:
+1. **Clone the repo:**
+    ```bash
+    git clone <this-repo-url>
+    cd mindfort-vuln-graphing
+    ```
+2. **Install dependencies:**
+    ```bash
+    npm install
+    # or
+    yarn install
+    ```
+3. **Configure environment:**
+    - Copy `.env.example` to `.env.local` and fill in your API keys, Neo4j connection, etc.
+4. **Run the app locally:**
+    ```bash
+    npm run dev
+    # or
+    yarn dev
+    ```
+5. **Open in browser:**
+    - Visit [http://localhost:3000](http://localhost:3000)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🧩 Technologies Used
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+-   **Next.js** (App Router)
+-   **React** (with hooks)
+-   **TypeScript**
+-   **Tailwind CSS** (with custom design)
+-   **Neo4j** (graph database)
+-   **LangChain** (LLM orchestration)
+-   **Zod** (runtime validation)
+-   **OpenAI/LLM APIs**
 
-## Deploy on Vercel
+## 🤝 Contributing & Development Notes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+-   All types and schemas are defined in `src/app/models/finding.ts` using Zod for runtime safety.
+-   Linting is relaxed for unused variables/imports to ease rapid prototyping.
+-   The chat UI is in `src/components/Chat.tsx` and is fully type-safe.
+-   API routes are in `src/app/api/` and use Next.js API handlers.
+-   For graph enrichment and Cypher queries, see `src/lib/agentTools.ts` and `src/app/api/enrich/route.ts`.
+-   PRs and issues are welcome!
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# mindfort-vuln-graphing
+## 📝 Special Notes
+
+-   This project is designed for rapid prototyping and research. Some features (like memory, enrichment, etc.) are experimental.
+-   Make sure your Neo4j instance and LLM API keys are set up before running locally.
+-   For best results, use Node.js 18+ and the latest npm/yarn.
+
+---
+
+Enjoy exploring and analyzing your security findings with MindFort Vulnerability Graphing!
