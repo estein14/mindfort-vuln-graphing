@@ -1,5 +1,6 @@
 // src/app/api/chat/route.ts
-import { runAgenticChat, ChatMessage } from "@/lib/agent";
+import { runAgenticChat } from "@/lib/agent";
+import { ChatMessage } from "@/lib/agentTools";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {

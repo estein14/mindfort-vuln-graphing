@@ -1,7 +1,6 @@
 import axios from "axios";
 import { embedText } from "./embed";
 import { driver } from "./graph";
-import neo4j from "neo4j-driver";
 
 export async function semanticSearch(query: string) {
 	const queryEmbedding = await embedText(query);

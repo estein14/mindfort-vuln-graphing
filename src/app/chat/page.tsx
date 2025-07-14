@@ -8,9 +8,6 @@ export const metadata = {
 export default function ChatPage() {
 	return (
 		<main className='h-screen flex flex-col'>
-			<header className='bg-white shadow p-4'>
-				<h1 className='text-2xl font-bold'>Vulnerability Graph Chat</h1>
-			</header>
 			<Chat />
 		</main>
 	);
