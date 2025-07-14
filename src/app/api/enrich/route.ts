@@ -154,7 +154,7 @@ const pairwiseTools = {
 		console.log("a", a.properties.finding_id);
 		console.log("b", b.properties.finding_id);
 		const prompt = `You are a security expert. Analyze the following findings and decide if they share a similar exploit technique, even if their CWE or OWASP IDs differ.
-						Disregard any values that are null or empty.
+						
 						A: CWE=${a.properties.vuln_cwe_id}, OWASP=${a.properties.vuln_owasp_id}, Title="${a.properties.vuln_title}", Desc="${a.properties.vuln_description}"
 						B: CWE=${b.properties.vuln_cwe_id}, OWASP=${b.properties.vuln_owasp_id}, Title="${b.properties.vuln_title}", Desc="${b.properties.vuln_description}"
 
@@ -294,7 +294,7 @@ const pairwiseTools = {
 		console.log("b", b.properties.finding_id);
 		const prompt = `
 						You are a security engineer. Analyze whether a single remediation or fix could resolve BOTH of the following vulnerabilities. Consider all the details provided (title, description, CWE, OWASP, asset/service/path, package, etc). If yes, briefly explain what the remediation is.
-						Disregard any values that are null or empty.
+						
 						Finding A:
 						- Finding ID: ${a.properties.finding_id}
 						- CWE: ${a.properties.vuln_cwe_id}
@@ -377,9 +377,9 @@ async function runAgenticEnrichment() {
 
 export async function POST() {
 	try {
-		await runAgenticEnrichment();
+		// await runAgenticEnrichment();
 		return NextResponse.json(
-			{ message: "Enrichment complete" },
+			{ message: "Graph is already enriched :)" },
 			{ status: 200 }
 		);
 	} catch (error: unknown) {

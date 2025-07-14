@@ -2,7 +2,7 @@ import { driver } from "@/lib/graph";
 import findings from "@/data/findings_data.json";
 import { NextResponse } from "next/server";
 
-export async function POST() {
+async function ingestFindings() {
 	const session = driver.session();
 
 	try {
@@ -132,13 +132,20 @@ export async function POST() {
 		}
 
 		return NextResponse.json({ status: "success" });
+	} finally {
+		await session.close();
+	}
+}
+
+export async function POST() {
+	try {
+		// await ingestFindings();
+		return NextResponse.json({ message: "Findings already ingested" });
 	} catch (err) {
 		console.error("Ingestion error:", err);
 		return NextResponse.json(
 			{ error: "Failed to ingest findings" },
 			{ status: 500 }
 		);
-	} finally {
-		await session.close();
 	}
 }

@@ -5,11 +5,11 @@ import { useState, useRef, useEffect } from "react";
 interface Message {
 	role: "user" | "agent";
 	content: string;
+	reasoning?: string[];
 }
 
 export function Chat() {
 	const [messages, setMessages] = useState<Message[]>([]);
-	const [reasonings, setReasonings] = useState<string[][]>([]);
 	const [input, setInput] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [loadingMessage, setLoadingMessage] = useState(0);
@@ -56,7 +56,7 @@ export function Chat() {
 			const randomIndex =
 				Math.floor(Math.random() * (funnyMessages.length - 1)) + 1; // Skip index 0 ("Thinking...")
 			setLoadingMessage(randomIndex);
-		}, 10000);
+		}, 20000);
 
 		try {
 			// call your API
@@ -71,19 +71,20 @@ export function Chat() {
 					...prev,
 					{ role: "agent", content: "Error: " + data.error },
 				]);
-				setReasonings((prev) => [...prev, []]);
 				return;
 			}
 
-			const agentMsg = { role: "agent" as const, content: data.answer };
+			const agentMsg = {
+				role: "agent" as const,
+				content: data.answer,
+				reasoning: data.reasoning,
+			};
 			setMessages((prev) => [...prev, agentMsg]);
-			setReasonings((prev) => [...prev, [...data.reasoning]]);
 		} catch {
 			setMessages((prev) => [
 				...prev,
 				{ role: "agent", content: "Error: Failed to get response" },
 			]);
-			setReasonings((prev) => [...prev, []]);
 		} finally {
 			clearTimeout(timeoutId);
 			setIsLoading(false);
@@ -159,14 +160,14 @@ export function Chat() {
 									/>
 								</div>
 								{msg.role === "agent" &&
-									reasonings[i] &&
-									reasonings[i].length > 0 && (
+									msg.reasoning &&
+									msg.reasoning.length > 0 && (
 										<details className='text-gray-500 ml-4 mt-2'>
 											<summary className='cursor-pointer text-sm hover:text-gray-700 transition-colors'>
 												🔍 View reasoning steps
 											</summary>
 											<ul className='list-disc list-inside mt-2 text-xs space-y-1'>
-												{reasonings[i].map(
+												{msg.reasoning.map(
 													(step, j) => (
 														<li
 															key={j}

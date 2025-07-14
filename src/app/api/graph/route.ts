@@ -1,8 +1,9 @@
 import { driver } from "@/lib/graph";
 import { NextResponse } from "next/server";
-import { GraphData, GraphNode, GraphRelationship } from "@/app/models/finding";
+import { GraphNode, GraphRelationship } from "@/app/models/finding";
 
-export async function GET() {
+// Graph retrieval function for visualization
+const getGraph = async () => {
 	const session = driver.session();
 
 	try {
@@ -43,14 +44,21 @@ export async function GET() {
 		});
 
 		const nodes = Object.values(nodesMap);
-		return NextResponse.json({ nodes, rels }, { status: 200 });
+		return { nodes, rels };
+	} finally {
+		await session.close();
+	}
+};
+
+export async function GET() {
+	try {
+		const graph = await getGraph();
+		return NextResponse.json(graph, { status: 200 });
 	} catch (err) {
 		console.error(err);
 		return NextResponse.json(
 			{ error: "Failed to fetch graph" },
 			{ status: 500 }
 		);
-	} finally {
-		await session.close();
 	}
 }

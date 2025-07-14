@@ -1,4 +1,3 @@
-// src/lib/vectorStore.ts
 import cosineSimilarity from "compute-cosine-similarity";
 
 interface MemoryItem {

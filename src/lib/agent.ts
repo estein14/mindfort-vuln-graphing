@@ -89,8 +89,6 @@ export async function runAgenticChat(
 			recallSection,
 			history
 		);
-
-		// assistantReply = await analyzeGraphContext(
 	} else if (intent === TOOLS.specific_graph_search) {
 		const cypher = await getSpecificGraphSearchCypher(userMessage);
 		reasoning.push(`Generated Cypher query: ${cypher}`);
